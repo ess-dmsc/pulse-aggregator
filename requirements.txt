@@ -4,3 +4,4 @@ numpy
 tqdm
 pre-commit
 black
+attrs
