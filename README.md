@@ -8,3 +8,8 @@ To install required Python packages:
 ```bash
 pip install -r requirements.txt
 ```
+
+Please then install the pre-commit hook to run [Black](https://github.com/python/black) formatter:
+```bash
+pre-commit install
+```
