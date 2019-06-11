@@ -165,7 +165,19 @@ def patch_geometry(outfile):
     del outfile["entry/sample/transformations/offset_stage_2_to_sample"]
     del outfile["entry/sample/transformations/offset_stage_2_to_stage_1"]
     # Correct the source position
-    outfile["entry/instrument/source/transformations/location"][...] = 27.4
+    # Check whether this was a WFM run or single pulse by getting the size of
+    # the array containing the WFM chopper timings. If they are 0, then WFM mode
+    # was not in use.
+    len_wfm_chopper_1 = len(output_file['/entry/instrument/chopper_3/top_dead_center/time'][...])
+    len_wfm_chopper_2 = len(output_file['/entry/instrument/chopper_4/top_dead_center/time'][...])
+    if (len_wfm_chopper_1 == 0) and (len_wfm_chopper_2 == 0):
+        output_file['entry/instrument/source/transformations/location'][...] = 27.4
+    elif (len_wfm_chopper_1 > 0) and (len_wfm_chopper_2 > 0):
+        output_file['entry/instrument/source/transformations/location'][...] = 20.55
+    else:
+        raise RuntimeError("Something is wrong in the WFM chopper timings: "
+                           "One chopper has an empty array of TDC timings, "
+                           "while the other contains values.")
     # Correct detector_1 position and orientation
     del outfile["entry/instrument/detector_1/depends_on"]
     depend_on_path = "/entry/instrument/detector_1/transformations/x_offset"
