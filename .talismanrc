@@ -1,0 +1,4 @@
+fileignoreconfig:
+- filename: requirements.txt
+  checksum: 678a3e21cd60c54f9e82ec3bc60841a1d3651bff3305d5ce28144e70c14fe1e6
+  ignore_detectors: []
