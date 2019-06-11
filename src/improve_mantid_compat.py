@@ -6,7 +6,7 @@ import os
 from os.path import isfile, join
 import subprocess
 from shutil import copyfile
-from pulse_aggregator import (
+from .pulse_aggregator import (
     aggregate_events_by_pulse,
     remove_data_not_used_by_mantid,
     patch_geometry,
