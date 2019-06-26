@@ -2,7 +2,7 @@ import h5py
 import numpy as np
 from shutil import copyfile
 import matplotlib.pylab as pl
-from tqdm import tqdm
+# from tqdm import tqdm
 
 
 def position_to_index(pos, count):
@@ -78,6 +78,9 @@ def aggregate_events_by_pulse(
     output_group_name="event_data",
     event_id_override=None,
 ):
+
+    console_output = ""
+
     # Create output event group
     output_data_group = out_file["/entry"].create_group(output_group_name)
     output_data_group.attrs.create("NX_class", "NXevent_data", None, dtype="<S12")
@@ -95,12 +98,22 @@ def aggregate_events_by_pulse(
         tdc_times, event_ids, event_time_zero_input
     )
 
-    plot_timestamps(event_time_zero_input, tdc_times)
+    # plot_timestamps(event_time_zero_input, tdc_times)
 
     event_index_output = np.zeros_like(tdc_times, dtype=np.uint64)
     event_offset_output = np.zeros_like(event_ids, dtype=np.uint32)
     event_index = 0
-    for i, t in enumerate(tqdm(tdc_times[:-1])):
+    # for i, t in enumerate(tqdm(tdc_times[:-1])):
+    work_size = len(tdc_times[:-1]) - 1
+    iprog = 0
+    step = 10
+    for i, t in enumerate(tdc_times[:-1]):
+
+        prog = i * 100 // work_size
+        if prog >= iprog:
+            console_output += "{}%..".format(prog)
+            iprog += step
+
         while (
             event_index < len(event_time_zero_input)
             and event_time_zero_input[event_index] < tdc_times[i + 1]
@@ -128,6 +141,8 @@ def aggregate_events_by_pulse(
 
     # Delete the raw event data group
     del out_file[input_group_path]
+
+    return console_output + "\n"
 
 
 def patch_geometry(outfile):
@@ -157,15 +172,29 @@ def patch_geometry(outfile):
     outfile["entry/instrument/detector_1/"].create_dataset(
         "y_pixel_offset", y_offsets.shape, dtype=np.float64, data=y_offsets
     )
-    del outfile["entry/monitor_1/waveforms"]
-    del outfile["entry/instrument/detector_1/waveforms_channel_3"]
+    # del outfile["entry/monitor_1/waveforms"]
+    # del outfile["entry/instrument/detector_1/waveforms_channel_3"]
     # del outfile['entry/instrument/linear_axis_1']
     # del outfile['entry/instrument/linear_axis_2']
     del outfile["entry/sample/transformations/offset_stage_1_to_default_sample"]
     del outfile["entry/sample/transformations/offset_stage_2_to_sample"]
     del outfile["entry/sample/transformations/offset_stage_2_to_stage_1"]
     # Correct the source position
-    outfile["entry/instrument/source/transformations/location"][...] = 27.4
+    # Check whether this was a WFM run or single pulse by getting the size of
+    # the array containing the WFM chopper timings. If they are 0, then WFM mode
+    # was not in use.
+    len_wfm_chopper_1 = len(outfile['/entry/instrument/chopper_3/top_dead_center/time'][...])
+    len_wfm_chopper_2 = len(outfile['/entry/instrument/chopper_4/top_dead_center/time'][...])
+    if (len_wfm_chopper_1 == 0) and (len_wfm_chopper_2 == 0):
+        # Position of source chopper
+        outfile['entry/instrument/source/transformations/location'][...] = 27.4
+    elif (len_wfm_chopper_1 > 0) and (len_wfm_chopper_2 > 0):
+        # Half-way between the two WFM choppers
+        outfile['entry/instrument/source/transformations/location'][...] = 20.55
+    else:
+        raise RuntimeError("Something is wrong in the WFM chopper timings: "
+                           "One chopper has an empty array of TDC timings, "
+                           "while the other contains values.")
     # Correct detector_1 position and orientation
     del outfile["entry/instrument/detector_1/depends_on"]
     depend_on_path = "/entry/instrument/detector_1/transformations/x_offset"
@@ -297,5 +326,5 @@ if __name__ == "__main__":
             event_id_override=262144,
         )
 
-        remove_data_not_used_by_mantid(output_file)
+        remove_data_not_used_by_mantid(output_file, chatty=True)
         patch_geometry(output_file)
