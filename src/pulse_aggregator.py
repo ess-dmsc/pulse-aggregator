@@ -95,7 +95,7 @@ def aggregate_events_by_pulse(
         tdc_times, event_ids, event_time_zero_input
     )
 
-    plot_timestamps(event_time_zero_input, tdc_times)
+    # plot_timestamps(event_time_zero_input, tdc_times)
 
     event_index_output = np.zeros_like(tdc_times, dtype=np.uint64)
     event_offset_output = np.zeros_like(event_ids, dtype=np.uint32)
@@ -157,8 +157,8 @@ def patch_geometry(outfile):
     outfile["entry/instrument/detector_1/"].create_dataset(
         "y_pixel_offset", y_offsets.shape, dtype=np.float64, data=y_offsets
     )
-    del outfile["entry/monitor_1/waveforms"]
-    del outfile["entry/instrument/detector_1/waveforms_channel_3"]
+    # del outfile["entry/monitor_1/waveforms"]
+    # del outfile["entry/instrument/detector_1/waveforms_channel_3"]
     # del outfile['entry/instrument/linear_axis_1']
     # del outfile['entry/instrument/linear_axis_2']
     del outfile["entry/sample/transformations/offset_stage_1_to_default_sample"]
@@ -168,12 +168,12 @@ def patch_geometry(outfile):
     # Check whether this was a WFM run or single pulse by getting the size of
     # the array containing the WFM chopper timings. If they are 0, then WFM mode
     # was not in use.
-    len_wfm_chopper_1 = len(output_file['/entry/instrument/chopper_3/top_dead_center/time'][...])
-    len_wfm_chopper_2 = len(output_file['/entry/instrument/chopper_4/top_dead_center/time'][...])
+    len_wfm_chopper_1 = len(outfile['/entry/instrument/chopper_3/top_dead_center/time'][...])
+    len_wfm_chopper_2 = len(outfile['/entry/instrument/chopper_4/top_dead_center/time'][...])
     if (len_wfm_chopper_1 == 0) and (len_wfm_chopper_2 == 0):
-        output_file['entry/instrument/source/transformations/location'][...] = 27.4
+        outfile['entry/instrument/source/transformations/location'][...] = 27.4
     elif (len_wfm_chopper_1 > 0) and (len_wfm_chopper_2 > 0):
-        output_file['entry/instrument/source/transformations/location'][...] = 20.55
+        outfile['entry/instrument/source/transformations/location'][...] = 20.55
     else:
         raise RuntimeError("Something is wrong in the WFM chopper timings: "
                            "One chopper has an empty array of TDC timings, "
@@ -309,5 +309,5 @@ if __name__ == "__main__":
             event_id_override=262144,
         )
 
-        remove_data_not_used_by_mantid(output_file)
+        remove_data_not_used_by_mantid(output_file, chatty=True)
         patch_geometry(output_file)

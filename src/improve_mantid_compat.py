@@ -6,7 +6,7 @@ import os
 from os.path import isfile, join
 import subprocess
 from shutil import copyfile
-from .pulse_aggregator import (
+from pulse_aggregator import (
     aggregate_events_by_pulse,
     remove_data_not_used_by_mantid,
     patch_geometry,
@@ -182,6 +182,65 @@ def link_logs():
         )
 
 
+def strip_to_essentials(fin="", fout="", pattern="waveform_data", chatty=False):
+    ignores = pattern.replace(" ", "").split(',')
+    input_file = h5py.File(fin, 'r')
+    output_file = h5py.File(fout, 'w')
+
+    if chatty:
+        print("Stripping out all entries that include:")
+        for s in ignores:
+            print(s)
+
+    for a in input_file.attrs:
+        output_file.attrs[a] = input_file.attrs[a]
+
+    groups = []
+    input_file.visit(groups.append)
+
+    skipped = []
+    for g in groups:
+        to_be_copied = True
+        for i in ignores:
+            if g.count(i) > 0:
+                to_be_copied = False
+                break
+        # Also remove groups without NX_class
+        no_nx_class = False
+        if isinstance(input_file[g], h5py.Group):
+            if "NX_class" not in input_file[g].attrs.keys():
+                no_nx_class = True
+        if to_be_copied:
+            if chatty:
+                print("Copying entry:", g)
+            if type(input_file[g]) == h5py.highlevel.Dataset:
+                indx = g.rfind("/")
+                if indx < 0:
+                    input_file.copy(g, output_file)
+                else:
+                    input_file.copy(g, output_file[g[:indx]])
+            else:
+                newGroup = output_file.create_group(g)
+                for a in input_file[g].attrs:
+                    newGroup.attrs[a] = input_file[g].attrs[a]
+            if no_nx_class:
+                add_nx_class_to_group(output_file[g], "NXlog")
+        else:
+            skipped.append(g)
+
+    if chatty:
+        print("===================================")
+        print("The following entries were skipped:")
+        for s in skipped:
+            print(s)
+
+    input_file.close()
+    output_file.close()
+
+    return
+
+#==============================================================================
+
 for filename in filenames:
     name, extension = os.path.splitext(filename)
     if extension != ".hdf":
@@ -196,7 +255,7 @@ for filename in filenames:
     # First run pulse aggregation
     output_filename = f"{name}.nxs"
     print("Copying input file")
-    copyfile(filename, output_filename)
+    strip_to_essentials(fin=filename, fout=output_filename, pattern="waveforms")
     with h5py.File(output_filename, "r+") as output_file:
         # DENEX detector
         print("Aggregating DENEX detector events")
@@ -237,9 +296,6 @@ for filename in filenames:
             output_file,
         )
 
-        print("Removing groups without NX_class defined")
-        remove_data_not_used_by_mantid(output_file, chatty=False)
-
         print("Patching geometry")
         patch_geometry(output_file)
 
@@ -249,24 +305,10 @@ for filename in filenames:
         print("Link logs to where Mantid can find them")
         link_logs()
 
-    print("Running h5repack")
-    name, extension = os.path.splitext(output_filename)
-    repacked_filename = f"{name}_agg_with_monitor.nxs"
-    subprocess.run(
-        [
-            os.path.join(args.format_convert, "h5repack"),
-            output_filename,
-            repacked_filename,
-        ]
-    )
-
-    print("Deleting intermediate file")
-    os.remove(output_filename)
-
     # Run h5format_convert on each file to improve compatibility with HDF5 1.8.x used by Mantid
     print("Running h5format_convert")
     subprocess.run(
-        [os.path.join(args.format_convert, "h5format_convert"), repacked_filename]
+        [os.path.join(args.format_convert, "h5format_convert"), output_filename]
     )
 
-    pl.show()
+    # pl.show()
