@@ -12,6 +12,7 @@ from pulse_aggregator import (
     patch_geometry,
 )
 import matplotlib.pylab as pl
+from multiprocessing import Process
 
 
 @attr.s
@@ -52,45 +53,7 @@ def add_nx_class_to_groups(group_names, nx_class_name, outfile):
         add_nx_class_to_group(outfile[group_name], nx_class_name)
 
 
-parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-parser.add_argument(
-    "-i",
-    "--input-directory",
-    type=str,
-    help="Directory with raw files to convert (all files ending .hdf assumed to be raw)",
-    required=True,
-)
-parser.add_argument(
-    "--format-convert",
-    type=str,
-    help="Path to h5format_convert and h5repack executables",
-    required=True,
-)
-parser.add_argument(
-    "--chopper-tdc-path",
-    type=str,
-    help="Path to the chopper TDC unix timestamps (ns) dataset in the file",
-    default="/entry/instrument/chopper_1/top_dead_center/time",
-)
-parser.add_argument(
-    "--tdc-pulse-time-difference",
-    type=int,
-    help="Time difference between TDC timestamps and pulse T0 in integer nanoseconds",
-    default=0,
-)
-parser.add_argument(
-    "--only-this-file", type=str, help="Only process file with this name"
-)
-args = parser.parse_args()
-
-filenames = [
-    join(args.input_directory, f)
-    for f in os.listdir(args.input_directory)
-    if isfile(join(args.input_directory, f))
-]
-
-
-def convert_to_fixed_length_strings():
+def convert_to_fixed_length_strings(output_file):
     global datasets_to_convert
     datasets_to_convert = []
     output_file.visititems(find_variable_length_string_datasets)
@@ -145,7 +108,7 @@ def _link_log(outfile, log_group, source_path, target_name):
         add_attributes_to_node(log_group[f"{target_name}/time"], times_attrs)
 
 
-def link_logs():
+def link_logs(output_file):
     log_group = output_file["/entry"].create_group("logs")
     add_nx_class_to_group(log_group, "IXselog")
     _link_log(
@@ -187,10 +150,11 @@ def strip_to_essentials(fin="", fout="", pattern="waveform_data", chatty=False):
     input_file = h5py.File(fin, 'r')
     output_file = h5py.File(fout, 'w')
 
+    console_output = ""
     if chatty:
-        print("Stripping out all entries that include:")
+        console_output += "Stripping out all entries that include:\n"
         for s in ignores:
-            print(s)
+            console_output += "{}\n".format(s)
 
     for a in input_file.attrs:
         output_file.attrs[a] = input_file.attrs[a]
@@ -212,7 +176,7 @@ def strip_to_essentials(fin="", fout="", pattern="waveform_data", chatty=False):
                 no_nx_class = True
         if to_be_copied:
             if chatty:
-                print("Copying entry:", g)
+                console_output += "Copying entry: {}\n".format(g)
             if type(input_file[g]) == h5py.highlevel.Dataset:
                 indx = g.rfind("/")
                 if indx < 0:
@@ -229,86 +193,180 @@ def strip_to_essentials(fin="", fout="", pattern="waveform_data", chatty=False):
             skipped.append(g)
 
     if chatty:
-        print("===================================")
-        print("The following entries were skipped:")
+        console_output += "===================================\n"
+        console_output += "The following entries were skipped:\n"
         for s in skipped:
-            print(s)
+            console_output += "{}\n".format(s)
 
     input_file.close()
     output_file.close()
 
+    return console_output
+
+
+def process_file(filelist, args, cpuid):
+
+    for filename in filelist:
+
+        console_output = "#################### CPU: {} ####################\n".format(cpuid)
+        console_output += "Processing file: {}\n".format(filename)
+
+        # First run pulse aggregation
+        name, extension = os.path.splitext(filename)
+        output_filename = f"{name}.nxs"
+        console_output += "Copying input file\n"
+        console_output += strip_to_essentials(fin=filename, fout=output_filename,
+                            pattern="waveforms")
+        with h5py.File(output_filename, "r+") as output_file:
+            # DENEX detector
+            console_output += "Aggregating DENEX detector events\n"
+            console_output += aggregate_events_by_pulse(
+                output_file,
+                args.chopper_tdc_path,
+                "/entry/instrument/detector_1/raw_event_data",
+                args.tdc_pulse_time_difference,
+            )
+
+            # Monitor
+            console_output += "Aggregating monitor events\n"
+            console_output += aggregate_events_by_pulse(
+                output_file,
+                args.chopper_tdc_path,
+                "/entry/monitor_1/events",
+                args.tdc_pulse_time_difference,
+                output_group_name="monitor_event_data",
+                event_id_override=262144,
+            )
+
+            console_output += "Adding missing NX_class attributes\n"
+            add_nx_class_to_groups(
+                [
+                    "/entry/instrument/linear_axis_1/speed",
+                    "/entry/instrument/linear_axis_1/status",
+                    "/entry/instrument/linear_axis_1/target_value",
+                    "/entry/instrument/linear_axis_1/value",
+                    "/entry/instrument/linear_axis_2/speed",
+                    "/entry/instrument/linear_axis_2/status",
+                    "/entry/instrument/linear_axis_2/target_value",
+                    "/entry/instrument/linear_axis_2/value",
+                    "/entry/sample/transformations/linear_stage_1_position",
+                    "/entry/sample/transformations/linear_stage_2_position",
+                    "/NTP_MRF_time_diff",
+                ],
+                "NXlog",
+                output_file,
+            )
+
+            console_output += "Patching geometry\n"
+            patch_geometry(output_file)
+
+            console_output += "Converting to fixed length strings\n"
+            convert_to_fixed_length_strings(output_file)
+
+            console_output += "Link logs to where Mantid can find them\n"
+            link_logs(output_file)
+
+        # Run h5format_convert on each file to improve compatibility with HDF5 1.8.x used by Mantid
+        console_output += "Running h5format_convert\n"
+        subprocess.run(
+            [os.path.join(args.format_convert, "h5format_convert"), output_filename]
+        )
+
+        print(console_output)
+        # pl.show()
+
     return
+
 
 #==============================================================================
 
-for filename in filenames:
-    name, extension = os.path.splitext(filename)
-    if extension != ".hdf":
-        continue
 
-    onlypath, onlyname = os.path.split(filename)
-    if args.only_this_file and onlyname != args.only_this_file:
-        continue
+if __name__ == "__main__":
 
-    print(f"#############################################\nProcessing file: {filename}")
-
-    # First run pulse aggregation
-    output_filename = f"{name}.nxs"
-    print("Copying input file")
-    strip_to_essentials(fin=filename, fout=output_filename, pattern="waveforms")
-    with h5py.File(output_filename, "r+") as output_file:
-        # DENEX detector
-        print("Aggregating DENEX detector events")
-        aggregate_events_by_pulse(
-            output_file,
-            args.chopper_tdc_path,
-            "/entry/instrument/detector_1/raw_event_data",
-            args.tdc_pulse_time_difference,
-        )
-
-        # Monitor
-        print("Aggregating monitor events")
-        aggregate_events_by_pulse(
-            output_file,
-            args.chopper_tdc_path,
-            "/entry/monitor_1/events",
-            args.tdc_pulse_time_difference,
-            output_group_name="monitor_event_data",
-            event_id_override=262144,
-        )
-
-        print("Adding missing NX_class attributes")
-        add_nx_class_to_groups(
-            [
-                "/entry/instrument/linear_axis_1/speed",
-                "/entry/instrument/linear_axis_1/status",
-                "/entry/instrument/linear_axis_1/target_value",
-                "/entry/instrument/linear_axis_1/value",
-                "/entry/instrument/linear_axis_2/speed",
-                "/entry/instrument/linear_axis_2/status",
-                "/entry/instrument/linear_axis_2/target_value",
-                "/entry/instrument/linear_axis_2/value",
-                "/entry/sample/transformations/linear_stage_1_position",
-                "/entry/sample/transformations/linear_stage_2_position",
-                "/NTP_MRF_time_diff",
-            ],
-            "NXlog",
-            output_file,
-        )
-
-        print("Patching geometry")
-        patch_geometry(output_file)
-
-        print("Converting to fixed length strings")
-        convert_to_fixed_length_strings()
-
-        print("Link logs to where Mantid can find them")
-        link_logs()
-
-    # Run h5format_convert on each file to improve compatibility with HDF5 1.8.x used by Mantid
-    print("Running h5format_convert")
-    subprocess.run(
-        [os.path.join(args.format_convert, "h5format_convert"), output_filename]
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument(
+        "-i",
+        "--input-directory",
+        type=str,
+        help="Directory with raw files to convert (all files ending .hdf assumed to be raw)",
+        required=True,
     )
+    parser.add_argument(
+        "--format-convert",
+        type=str,
+        help="Path to h5format_convert and h5repack executables",
+        required=True,
+    )
+    parser.add_argument(
+        "--chopper-tdc-path",
+        type=str,
+        help="Path to the chopper TDC unix timestamps (ns) dataset in the file",
+        default="/entry/instrument/chopper_1/top_dead_center/time",
+    )
+    parser.add_argument(
+        "--tdc-pulse-time-difference",
+        type=int,
+        help="Time difference between TDC timestamps and pulse T0 in integer nanoseconds",
+        default=0,
+    )
+    parser.add_argument(
+        "--only-this-file", type=str, help="Only process file with this name"
+    )
+    parser.add_argument(
+        "-n",
+        "--ncpus",
+        type=int,
+        help="Number of cpus to use for parallel processing of multiple files",
+        default=1,
+    )
+    args = parser.parse_args()
 
-    # pl.show()
+    # Get all files in current directory
+    all_files = [
+        join(args.input_directory, f)
+        for f in os.listdir(args.input_directory)
+        if isfile(join(args.input_directory, f))
+    ]
+
+    # Clean file list
+    filenames = []
+    for f in all_files:
+        name, extension = os.path.splitext(f)
+        if extension != ".hdf":
+            continue
+        onlypath, onlyname = os.path.split(f)
+        if args.only_this_file and onlyname != args.only_this_file:
+            continue
+        filenames.append(f)
+
+    # Now process each file from the clean list =========================
+
+    # Prepare file list for each process
+    # Try to split the workload according to the file sizes
+    filesizes = []
+    for f in filenames:
+        filesizes.append(os.path.getsize(f))
+
+    # Containers for file names and total workload volume
+    file_list_per_cpu = []
+    for i in range(args.ncpus):
+        file_list_per_cpu.append([])
+    bytes_per_cpu = np.zeros([args.ncpus], dtype=np.int64)
+
+    # Go through each file in the list
+    for i, f in enumerate(filenames):
+        # Find the cpu that currently holds the least bytes
+        icpu = np.argmin(bytes_per_cpu)
+        # Append the current file to its list and update its workload
+        file_list_per_cpu[icpu].append(f)
+        bytes_per_cpu[icpu] += filesizes[i]
+
+    # Prepare array to hold processes
+    processes = []
+    for ip in range(args.ncpus):
+        processes.append(Process(target=process_file, args=(file_list_per_cpu[ip], args, ip)))
+    # Start and join processes
+    for p in processes:
+        p.start()
+    for p in processes:
+        p.join()

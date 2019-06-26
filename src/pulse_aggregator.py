@@ -2,7 +2,7 @@ import h5py
 import numpy as np
 from shutil import copyfile
 import matplotlib.pylab as pl
-from tqdm import tqdm
+# from tqdm import tqdm
 
 
 def position_to_index(pos, count):
@@ -78,6 +78,9 @@ def aggregate_events_by_pulse(
     output_group_name="event_data",
     event_id_override=None,
 ):
+
+    console_output = ""
+
     # Create output event group
     output_data_group = out_file["/entry"].create_group(output_group_name)
     output_data_group.attrs.create("NX_class", "NXevent_data", None, dtype="<S12")
@@ -100,7 +103,17 @@ def aggregate_events_by_pulse(
     event_index_output = np.zeros_like(tdc_times, dtype=np.uint64)
     event_offset_output = np.zeros_like(event_ids, dtype=np.uint32)
     event_index = 0
-    for i, t in enumerate(tqdm(tdc_times[:-1])):
+    # for i, t in enumerate(tqdm(tdc_times[:-1])):
+    work_size = len(tdc_times[:-1]) - 1
+    iprog = 0
+    step = 10
+    for i, t in enumerate(tdc_times[:-1]):
+
+        prog = i * 100 // work_size
+        if prog >= iprog:
+            console_output += "{}%..".format(prog)
+            iprog += step
+
         while (
             event_index < len(event_time_zero_input)
             and event_time_zero_input[event_index] < tdc_times[i + 1]
@@ -128,6 +141,8 @@ def aggregate_events_by_pulse(
 
     # Delete the raw event data group
     del out_file[input_group_path]
+
+    return console_output + "\n"
 
 
 def patch_geometry(outfile):
@@ -171,8 +186,10 @@ def patch_geometry(outfile):
     len_wfm_chopper_1 = len(outfile['/entry/instrument/chopper_3/top_dead_center/time'][...])
     len_wfm_chopper_2 = len(outfile['/entry/instrument/chopper_4/top_dead_center/time'][...])
     if (len_wfm_chopper_1 == 0) and (len_wfm_chopper_2 == 0):
+        # Position of source chopper
         outfile['entry/instrument/source/transformations/location'][...] = 27.4
     elif (len_wfm_chopper_1 > 0) and (len_wfm_chopper_2 > 0):
+        # Half-way between the two WFM choppers
         outfile['entry/instrument/source/transformations/location'][...] = 20.55
     else:
         raise RuntimeError("Something is wrong in the WFM chopper timings: "
