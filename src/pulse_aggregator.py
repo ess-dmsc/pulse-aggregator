@@ -110,11 +110,6 @@ def aggregate_events_by_pulse(
                 event_offset_output[event_index] = (
                     event_time_zero_input[event_index] - tdc_times[i]
                 )
-            else:
-                raise Exception(
-                    "Found event outside of chopper timestamp range, "
-                    "something went wrong when truncating the datasets"
-                )
             event_index += 1
         event_index_output[i + 1] = event_index
 

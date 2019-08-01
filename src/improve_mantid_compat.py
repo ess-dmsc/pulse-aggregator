@@ -84,6 +84,13 @@ parser.add_argument(
 parser.add_argument(
     "--only-this-file", type=str, help="Only process file with this name"
 )
+parser.add_argument(
+    "-o",
+    "--output-dir",
+    type=str,
+    help="if set then output files will be saved here",
+    default=""
+)
 args = parser.parse_args()
 
 filenames = [
@@ -197,7 +204,10 @@ for filename in filenames:
     print(f"#############################################\nProcessing file: {filename}")
 
     # First run pulse aggregation
-    output_filename = f"{name}.nxs"
+    if args.output_dir:
+        output_filename = os.path.join(args.output_dir, f"{os.path.basename(name)}.nxs")
+    else:
+        output_filename = f"{name}.nxs"
     print("Copying input file")
     copyfile(filename, output_filename)
     with h5py.File(output_filename, "r+") as output_file:
