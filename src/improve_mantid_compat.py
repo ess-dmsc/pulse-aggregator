@@ -6,7 +6,7 @@ import os
 from os.path import isfile, join
 import subprocess
 from shutil import copyfile
-from .pulse_aggregator import (
+from pulse_aggregator import (
     aggregate_events_by_pulse,
     remove_data_not_used_by_mantid,
     patch_geometry,
@@ -49,7 +49,10 @@ def add_nx_class_to_group(group, nx_class_name):
 
 def add_nx_class_to_groups(group_names, nx_class_name, outfile):
     for group_name in group_names:
-        add_nx_class_to_group(outfile[group_name], nx_class_name)
+        try:
+            add_nx_class_to_group(outfile[group_name], nx_class_name)
+        except:
+            pass
 
 
 parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -114,35 +117,35 @@ def add_attributes_to_node(node, attributes: dict):
 
 
 def _link_log(outfile, log_group, source_path, target_name):
-    log_group[target_name] = outfile[source_path]
     try:
+        log_group[target_name] = outfile[source_path]
         log_group[f"{target_name}/value"] = log_group[f"{target_name}/raw_value"]
+        # Mantid doesn't assume relative unix epoch (should according to NeXus standard)
+        if "start" not in log_group[f"{target_name}/time"].attrs:
+            unix_epoch = "1970-01-01T00:00:00Z"
+            log_group[f"{target_name}/time"].attrs.create(
+                "start", np.array(unix_epoch).astype("|S" + str(len(unix_epoch)))
+            )
+        if "units" not in log_group[f"{target_name}/time"].attrs:
+            nanosecs = "ns"
+            log_group[f"{target_name}/time"].attrs.create(
+                "units", np.array(nanosecs).astype("|S" + str(len(nanosecs)))
+            )
+
+        if log_group[f"{target_name}/time"].attrs.get("units") == b"ns":
+            # Mantid doesn't know about nanoseconds, we'll have to reduce the precision to microseconds
+            microsecs = "us"
+            log_group[f"{target_name}/time"].attrs.modify(
+                "units", np.array(microsecs).astype("|S" + str(len(microsecs)))
+            )
+            # Convert nanoseconds to microseconds and store as float not int
+            times = log_group[f"{target_name}/time"][...].astype(float) * 0.001
+            times_attrs = dict(log_group[f"{target_name}/time"].attrs)
+            del log_group[f"{target_name}/time"]
+            log_group[target_name].create_dataset("time", dtype=float, data=times)
+            add_attributes_to_node(log_group[f"{target_name}/time"], times_attrs)
     except:
         pass
-    # Mantid doesn't assume relative unix epoch (should according to NeXus standard)
-    if "start" not in log_group[f"{target_name}/time"].attrs:
-        unix_epoch = "1970-01-01T00:00:00Z"
-        log_group[f"{target_name}/time"].attrs.create(
-            "start", np.array(unix_epoch).astype("|S" + str(len(unix_epoch)))
-        )
-    if "units" not in log_group[f"{target_name}/time"].attrs:
-        nanosecs = "ns"
-        log_group[f"{target_name}/time"].attrs.create(
-            "units", np.array(nanosecs).astype("|S" + str(len(nanosecs)))
-        )
-
-    if log_group[f"{target_name}/time"].attrs.get("units") == b"ns":
-        # Mantid doesn't know about nanoseconds, we'll have to reduce the precision to microseconds
-        microsecs = "us"
-        log_group[f"{target_name}/time"].attrs.modify(
-            "units", np.array(microsecs).astype("|S" + str(len(microsecs)))
-        )
-        # Convert nanoseconds to microseconds and store as float not int
-        times = log_group[f"{target_name}/time"][...].astype(float) * 0.001
-        times_attrs = dict(log_group[f"{target_name}/time"].attrs)
-        del log_group[f"{target_name}/time"]
-        log_group[target_name].create_dataset("time", dtype=float, data=times)
-        add_attributes_to_node(log_group[f"{target_name}/time"], times_attrs)
 
 
 def link_logs():
