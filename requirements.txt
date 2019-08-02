@@ -1,4 +1,4 @@
--e git+git://github.com/ess-dmsc/python-nexus-utilities.git@b0741e847965bc2e59cea6f4b7c623720d697a4e#egg=nexusutils
+-e git+https://github.com/ess-dmsc/python-nexus-utilities.git@b0741e847965bc2e59cea6f4b7c623720d697a4e#egg=nexusutils
 h5py
 numpy
 tqdm
