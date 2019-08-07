@@ -201,9 +201,12 @@ def patch_geometry(outfile):
     outfile["/entry/instrument/monitor_1/event_time_zero"] = outfile[
         "/entry/monitor_event_data/event_time_zero"
     ]
-    outfile["/entry/instrument/monitor_1/monitor_number"] = outfile[
-        "/entry/instrument/monitor_1/detector_id"
-    ]
+    # Must be 32 bit for Mantid
+    outfile["/entry/instrument/monitor_1/"].create_dataset(
+        "monitor_number",
+        data=outfile["/entry/instrument/monitor_1/detector_id"][...],
+        dtype=np.int32,
+    )
 
 
 def remove_data_not_used_by_mantid(outfile, chatty=False):
@@ -230,7 +233,7 @@ def plot_timestamps(timestamps, range_timestamps):
     fig, ax1 = pl.subplots(1, 1)
     ax1.hist(timestamps, bins=200, range=(range_timestamps[0], range_timestamps[-1]))
     print(
-        f"Time range of chopper timestamps is {(range_timestamps[-1]-range_timestamps[0]) * 1e-9} seconds"
+        f"Time range of chopper timestamps is {(range_timestamps[-1] - range_timestamps[0]) * 1e-9} seconds"
     )
 
 
