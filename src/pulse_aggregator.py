@@ -4,6 +4,14 @@ from shutil import copyfile
 import matplotlib.pylab as pl
 from tqdm import tqdm
 
+"""
+We don't know the position the source chopper disc is in when its TDC timestamp is recorded.
+Therefore we'll use the WFM chopper as the source and our t0 for each pulse.
+The source position is set to the position of the WFM chopper pair.
+In Neil's script the first argument passed to make_frame_shifts() should be zero, as the
+event time-of-flights output by this script are relative to the first window of the WFM chopper pair being open.
+"""
+
 
 def position_to_index(pos, count):
     uint_max = 2 ** 16 - 1
@@ -100,7 +108,9 @@ def aggregate_events_by_pulse(
     event_index_output = np.zeros_like(tdc_times, dtype=np.uint64)
     event_offset_output = np.zeros_like(event_ids, dtype=np.uint32)
     event_index = 0
-    for i, t in enumerate(tqdm(tdc_times[:-1])):
+    for i, t in enumerate(
+        tqdm(tdc_times[:-1])
+    ):  # for i, t in enumerate(tqdm(tdc_times[1:-1])):
         while (
             event_index < len(event_time_zero_input)
             and event_time_zero_input[event_index] < tdc_times[i + 1]
@@ -117,12 +127,22 @@ def aggregate_events_by_pulse(
         event_ids = event_id_override * np.ones_like(event_ids)
     else:
         event_ids[event_ids > 262143] = 262143
+
+    plot_histogram(event_offset_output)
     write_event_data(
         output_data_group, event_ids, event_index_output, event_offset_output, tdc_times
     )
 
     # Delete the raw event data group
     del out_file[input_group_path]
+
+
+def plot_histogram(offset_from_source_chopper):
+    fig, ax = pl.subplots(1, 1)
+    ax.hist(offset_from_source_chopper, bins=2 * 144, range=(0, 72000000))
+    ax.set_title("Time offset from source chopper TDC timestamp")
+    ax.set_xlabel("Time (nanoseconds)")
+    ax.set_ylabel("Counts")
 
 
 def patch_geometry(outfile):
@@ -136,7 +156,6 @@ def patch_geometry(outfile):
     neutron_sensitive_width = 0.28  # metres, from DENEX data sheet
     # This pixel size is approximate, in practice the EFU configuration/calibration affects both the division
     # into 512 pixels and the actual active width we see of the detector
-    # I suspect the actually detector area we collect data from is smaller than 0.28x0.28
     pixel_size = neutron_sensitive_width / pixels_per_axis
     single_axis_offsets = (
         (pixel_size * np.arange(0, pixels_per_axis, 1, dtype=np.float))
@@ -289,6 +308,8 @@ if __name__ == "__main__":
             output_group_name="monitor_event_data",
             event_id_override=262144,
         )
+
+        pl.show()
 
         remove_data_not_used_by_mantid(output_file)
         patch_geometry(output_file)
