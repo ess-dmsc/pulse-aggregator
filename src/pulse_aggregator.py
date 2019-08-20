@@ -186,21 +186,6 @@ def patch_geometry(outfile):
     # Correct monitor position and id
     outfile["/entry/monitor_1/transformations/transformation"][...] = -1.8
     outfile["/entry/monitor_1/detector_id"][...] = 262144
-    # Link monitor in the instrument group so that Mantid finds it
-    outfile["/entry/instrument/monitor_1"] = outfile["/entry/monitor_1"]
-    # Link monitor event datasets to monitor in instrument group (for Mantid)
-    outfile["/entry/instrument/monitor_1/event_id"] = outfile[
-        "/entry/monitor_event_data/event_id"
-    ]
-    outfile["/entry/instrument/monitor_1/event_index"] = outfile[
-        "/entry/monitor_event_data/event_index"
-    ]
-    outfile["/entry/instrument/monitor_1/event_time_offset"] = outfile[
-        "/entry/monitor_event_data/event_time_offset"
-    ]
-    outfile["/entry/instrument/monitor_1/event_time_zero"] = outfile[
-        "/entry/monitor_event_data/event_time_zero"
-    ]
     # Must be 32 bit for Mantid
     outfile["/entry/instrument/monitor_1/"].create_dataset(
         "monitor_number",
