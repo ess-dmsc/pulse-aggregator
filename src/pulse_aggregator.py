@@ -3,7 +3,7 @@ import numpy as np
 from shutil import copyfile
 import matplotlib.pylab as pl
 from tqdm import tqdm
-
+from utils import delete_path_from_nexus
 
 def position_to_index(pos, count):
     uint_max = 2 ** 16 - 1
@@ -122,14 +122,14 @@ def aggregate_events_by_pulse(
     )
 
     # Delete the raw event data group
-    del out_file[input_group_path]
+    delete_path_from_nexus(out_file, input_group_path)
 
 
 def patch_geometry(outfile):
     pixels_per_axis = 512
     pixel_ids = np.arange(0, pixels_per_axis ** 2, 1, dtype=int)
     pixel_ids = np.reshape(pixel_ids, (pixels_per_axis, pixels_per_axis))
-    del outfile["entry/instrument/detector_1/detector_number"]
+    delete_path_from_nexus(outfile, "entry/instrument/detector_1/detector_number")
     outfile["entry/instrument/detector_1/"].create_dataset(
         "detector_number", pixel_ids.shape, dtype=np.int64, data=pixel_ids
     )
@@ -144,31 +144,31 @@ def patch_geometry(outfile):
         + (pixel_size / 2.0)
     )
     x_offsets, y_offsets = np.meshgrid(single_axis_offsets, single_axis_offsets)
-    del outfile["entry/instrument/detector_1/x_pixel_offset"]
-    del outfile["entry/instrument/detector_1/y_pixel_offset"]
+    delete_path_from_nexus(outfile, "entry/instrument/detector_1/x_pixel_offset")
+    delete_path_from_nexus(outfile, "entry/instrument/detector_1/y_pixel_offset")
     outfile["entry/instrument/detector_1/"].create_dataset(
         "x_pixel_offset", x_offsets.shape, dtype=np.float64, data=x_offsets
     )
     outfile["entry/instrument/detector_1/"].create_dataset(
         "y_pixel_offset", y_offsets.shape, dtype=np.float64, data=y_offsets
     )
-    del outfile["entry/monitor_1/waveforms"]
-    del outfile["entry/instrument/detector_1/waveforms_channel_3"]
+    delete_path_from_nexus(outfile, "entry/monitor_1/waveforms")
+    delete_path_from_nexus(outfile, "entry/instrument/detector_1/waveforms_channel_3")
     # Correct the source position
     outfile["entry/instrument/source/transformations/location"][...] = 27.4
     # Correct detector_1 position and orientation
-    del outfile["entry/instrument/detector_1/depends_on"]
+    delete_path_from_nexus(outfile, "entry/instrument/detector_1/depends_on")
     depend_on_path = "/entry/instrument/detector_1/transformations/x_offset"
     outfile["entry/instrument/detector_1"].create_dataset(
         "depends_on",
         data=np.array(depend_on_path).astype("|S" + str(len(depend_on_path))),
     )
-    del outfile["entry/instrument/detector_1/transformations/orientation"]
+    delete_path_from_nexus(outfile, "entry/instrument/detector_1/transformations/orientation")
     location_path = "entry/instrument/detector_1/transformations/location"
     outfile[location_path][...] = 3.5
     outfile[location_path].attrs["vector"] = [0.0, 0.0, 1.0]
     outfile[location_path].attrs["depends_on"] = "."
-    del outfile["entry/instrument/detector_1/transformations/beam_direction_offset"]
+    delete_path_from_nexus(outfile, "entry/instrument/detector_1/transformations/beam_direction_offset")
     x_offset_dataset = outfile[
         "entry/instrument/detector_1/transformations"
     ].create_dataset("x_offset", (1,), dtype=np.float64, data=0.065)
@@ -185,13 +185,21 @@ def patch_geometry(outfile):
     x_offset_dataset.attrs.create("vector", [-1.0, 0.0, 0.0])
     # Correct monitor position and id
     outfile["/entry/monitor_1/transformations/transformation"][...] = -1.8
-    outfile["/entry/monitor_1/detector_id"][...] = 262144
+    monitor_number = 262144
+    try:
+        outfile["/entry/monitor_1/detector_id"][...] = monitor_number
+    except:
+        pass
+
     # Must be 32 bit for Mantid
-    outfile["/entry/instrument/monitor_1/"].create_dataset(
-        "monitor_number",
-        data=outfile["/entry/instrument/monitor_1/detector_id"][...],
-        dtype=np.int32,
-    )
+    try:
+        outfile["/entry/instrument/monitor_1/"].create_dataset(
+            "monitor_number",
+            data=monitor_number,
+            dtype=np.int32,
+        )
+    except:
+        pass
 
 
 def remove_data_not_used_by_mantid(outfile, chatty=False):
@@ -199,7 +207,7 @@ def remove_data_not_used_by_mantid(outfile, chatty=False):
     # Delete waveform groups (not read by Mantid)
     for channel in range(3):
         group_name = f"/entry/instrument/detector_1/waveforms_channel_{channel}"
-        del outfile[group_name]
+        delete_path_from_nexus(outfile, group_name)
     groups_to_remove = []
 
     def remove_groups_without_nxclass(name, object):
@@ -211,7 +219,7 @@ def remove_data_not_used_by_mantid(outfile, chatty=False):
     for group in reversed(groups_to_remove):
         if chatty:
             print(f"{group} has no NX_class, removing it")
-        del outfile[group]
+        delete_path_from_nexus(outfile, group)
 
 
 def plot_timestamps(timestamps, range_timestamps):

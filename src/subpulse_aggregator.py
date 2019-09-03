@@ -4,6 +4,7 @@ import argparse
 from shutil import copyfile
 from tqdm import tqdm
 from matplotlib import pyplot as pl
+from utils import delete_path_from_nexus
 
 # Uncomment for nicer styling on plots
 # import seaborn as sns
@@ -383,7 +384,7 @@ def remove_data_not_used_by_mantid(out_file):
     # Delete waveform groups (not read by Mantid)
     for channel in range(3):
         group_name = f"/entry/instrument/detector_1/waveforms_channel_{channel}"
-        del out_file[group_name]
+        delete_path_from_nexus(out_file, group_name)
     groups_to_remove = []
 
     def remove_groups_without_nxclass(name, object):
@@ -394,14 +395,14 @@ def remove_data_not_used_by_mantid(out_file):
     out_file.visititems(remove_groups_without_nxclass)
     for group in reversed(groups_to_remove):
         print(group)
-        del out_file[group]
+        delete_path_from_nexus(out_file, group)
 
 
 def patch_geometry(out_file):
     pixels_per_axis = 512
     pixel_ids = np.arange(0, pixels_per_axis ** 2, 1, dtype=int)
     pixel_ids = np.reshape(pixel_ids, (pixels_per_axis, pixels_per_axis))
-    del out_file["entry/instrument/detector_1/detector_number"]
+    delete_path_from_nexus(out_file, "entry/instrument/detector_1/detector_number")
     out_file["entry/instrument/detector_1/"].create_dataset(
         "detector_number", pixel_ids.shape, dtype=np.int64, data=pixel_ids
     )
@@ -416,36 +417,36 @@ def patch_geometry(out_file):
         + (pixel_size / 2.0)
     )
     x_offsets, y_offsets = np.meshgrid(single_axis_offsets, single_axis_offsets)
-    del out_file["entry/instrument/detector_1/x_pixel_offset"]
-    del out_file["entry/instrument/detector_1/y_pixel_offset"]
+    delete_path_from_nexus(out_file, "entry/instrument/detector_1/x_pixel_offset")
+    delete_path_from_nexus(out_file, "entry/instrument/detector_1/y_pixel_offset")
     out_file["entry/instrument/detector_1/"].create_dataset(
         "x_pixel_offset", x_offsets.shape, dtype=np.float64, data=x_offsets
     )
     out_file["entry/instrument/detector_1/"].create_dataset(
         "y_pixel_offset", y_offsets.shape, dtype=np.float64, data=y_offsets
     )
-    del out_file["entry/monitor_1/waveforms"]
-    del out_file["entry/instrument/detector_1/waveforms_channel_3"]
-    del out_file["entry/instrument/linear_axis_1"]
-    del out_file["entry/instrument/linear_axis_2"]
-    del out_file["entry/sample/transformations/offset_stage_1_to_default_sample"]
-    del out_file["entry/sample/transformations/offset_stage_2_to_sample"]
-    del out_file["entry/sample/transformations/offset_stage_2_to_stage_1"]
+    delete_path_from_nexus(out_file, "entry/monitor_1/waveforms")
+    delete_path_from_nexus(out_file, "entry/instrument/detector_1/waveforms_channel_3")
+    delete_path_from_nexus(out_file, "entry/instrument/linear_axis_1")
+    delete_path_from_nexus(out_file, "entry/instrument/linear_axis_2")
+    delete_path_from_nexus(out_file, "entry/sample/transformations/offset_stage_1_to_default_sample")
+    delete_path_from_nexus(out_file, "entry/sample/transformations/offset_stage_2_to_sample")
+    delete_path_from_nexus(out_file, "entry/sample/transformations/offset_stage_2_to_stage_1")
     # Correct the source position, to be location of WFM choppers
     out_file["entry/instrument/source/transformations/location"][...] = 20.55
     # Correct detector_1 position and orientation
-    del out_file["entry/instrument/detector_1/depends_on"]
+    delete_path_from_nexus(out_file, "entry/instrument/detector_1/depends_on")
     depend_on_path = "/entry/instrument/detector_1/transformations/x_offset"
     out_file["entry/instrument/detector_1"].create_dataset(
         "depends_on",
         data=np.array(depend_on_path).astype("|S" + str(len(depend_on_path))),
     )
-    del out_file["entry/instrument/detector_1/transformations/orientation"]
+    delete_path_from_nexus(out_file, "entry/instrument/detector_1/transformations/orientation")
     location_path = "entry/instrument/detector_1/transformations/location"
     out_file[location_path][...] = 3.5
     out_file[location_path].attrs["vector"] = [0.0, 0.0, 1.0]
     out_file[location_path].attrs["depends_on"] = "."
-    del out_file["entry/instrument/detector_1/transformations/beam_direction_offset"]
+    delete_path_from_nexus(out_file, "entry/instrument/detector_1/transformations/beam_direction_offset")
     x_offset_dataset = out_file[
         "entry/instrument/detector_1/transformations"
     ].create_dataset("x_offset", (1,), dtype=np.float64, data=0.065)

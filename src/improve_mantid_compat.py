@@ -11,6 +11,9 @@ from pulse_aggregator import (
     remove_data_not_used_by_mantid,
     patch_geometry,
 )
+
+from utils import delete_path_from_nexus
+
 import matplotlib.pylab as pl
 
 
@@ -105,7 +108,7 @@ def convert_to_fixed_length_strings():
     datasets_to_convert = []
     output_file.visititems(find_variable_length_string_datasets)
     for dataset in datasets_to_convert:
-        del output_file[dataset.full_path]
+        delete_path_from_nexus(output_file, dataset.full_path)
         output_file[dataset.parent_path].create_dataset(
             dataset.name,
             data=np.array(dataset.text).astype("|S" + str(len(dataset.text))),
@@ -148,7 +151,7 @@ def _link_log(outfile, log_group, source_path, target_name):
             # Convert nanoseconds to microseconds and store as float not int
             times = log_group[f"{target_name}/time"][...].astype(float) * 0.001
             times_attrs = dict(log_group[f"{target_name}/time"].attrs)
-            del log_group[f"{target_name}/time"]
+            delete_path_from_nexus(log_group, f"{target_name}/time")
             log_group[target_name].create_dataset("time", dtype=float, data=times)
             add_attributes_to_node(log_group[f"{target_name}/time"], times_attrs)
     except:
@@ -211,26 +214,6 @@ for filename in filenames:
     print("Copying input file")
     copyfile(filename, output_filename)
     with h5py.File(output_filename, "r+") as output_file:
-        # DENEX detector
-        print("Aggregating DENEX detector events")
-        aggregate_events_by_pulse(
-            output_file,
-            args.chopper_tdc_path,
-            "/entry/instrument/detector_1/raw_event_data",
-            args.tdc_pulse_time_difference,
-        )
-
-        # Monitor
-        print("Aggregating monitor events")
-        aggregate_events_by_pulse(
-            output_file,
-            args.chopper_tdc_path,
-            "/entry/monitor_1/events",
-            args.tdc_pulse_time_difference,
-            output_group_name="monitor_event_data",
-            event_id_override=262144,
-        )
-
         print("Adding missing NX_class attributes")
         add_nx_class_to_groups(
             [
@@ -261,6 +244,24 @@ for filename in filenames:
 
         print("Link logs to where Mantid can find them")
         link_logs()
+
+        print("Linking event data where Mantid can find them")
+        output_file["entry/event_data/"] = output_file["entry/instrument/detector_1/raw_event_data/"]
+        output_file["entry/event_data/event_time_zero"].attrs.create("units", np.array("ns").astype("|S2"))
+        output_file["entry/event_data/event_time_zero"].attrs.create(
+            "offset", np.array("1970-01-01T00:00:00").astype("|S19")
+        )
+
+        output_file["entry/event_data/event_time_offset"].attrs.create("units", np.array("ns").astype("|S2"))
+
+        output_file["entry/monitor_event_data"] = output_file["entry/monitor_1/events"]
+        output_file["entry/monitor_event_data/event_time_zero"].attrs.create("units", np.array("ns").astype("|S2"))
+        output_file["entry/monitor_event_data/event_time_zero"].attrs.create(
+            "offset", np.array("1970-01-01T00:00:00").astype("|S19")
+        )
+
+        output_file["entry/monitor_event_data/event_time_offset"].attrs.create("units", np.array("ns").astype("|S2"))
+
 
     print("Running h5repack")
     name, extension = os.path.splitext(output_filename)
